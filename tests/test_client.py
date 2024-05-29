@@ -21,5 +21,9 @@ class TestClient(unittest.IsolatedAsyncioTestCase):
         response = await self.client.get_order('108915114139071')
         self.assertIsNotNone(response)
         
+    async def test_get_all_released_orders(self):
+        response = await self.client.get_all_released_orders()
+        self.assertIsNotNone(response)
+        
 if __name__ == "__main__":
     unittest.main()

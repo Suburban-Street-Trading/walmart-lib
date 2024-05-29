@@ -61,9 +61,22 @@ class AllItemsResponse(BaseModel):
     itemResponse: List[Item]
     nextCursor: Optional[str]
 
-
 class AllReleasedOrdersResponse(BaseModel):
-    orders: List[WalmartOrder]
+    
+    class ResponseList(BaseModel):
+        
+        class Meta(BaseModel):
+            totalCount: int
+            limit: int
+            nextCursor: Optional[str]
+    
+        class Elements(BaseModel):
+            order: List[WalmartOrder]
+        
+        meta: Meta
+        elements: Elements
+    
+    list: ResponseList
 
 
 class SingleOrderResponse(BaseModel):
@@ -152,7 +165,7 @@ class WalmartClient:
         if response.status_code >= 400:
             error_body = response.text
             raise WalmartClientException("Error while updating price", response.status_code, error_body)
-        return BulkPriceUpdateResponse.parse_raw(response.text)
+        return BulkPriceUpdateResponse.model_validate_json(response.text)
 
     @retry_on_error(retries=20, delay=5)
     async def bulk_update_inventory(self, update: BulkInventoryUpdate) -> BulkInventoryUpdateResponse:
@@ -171,7 +184,7 @@ class WalmartClient:
         if response.status_code >= 400:
             error_body = response.text
             raise WalmartClientException("Error while updating inventory", response.status_code, error_body)
-        return BulkInventoryUpdateResponse.parse_raw(response.text)
+        return BulkInventoryUpdateResponse.model_validate_json(response.text)
 
     async def get_all_items(self) -> List[Item]:
         items = []
@@ -192,7 +205,7 @@ class WalmartClient:
             request = client.build_request("GET", f"{self.base_url}{endpoint}", params=params)
             request = await self.auth_injector.inject_auth_headers(request)
             response = await client.send(request)
-        return AllItemsResponse.parse_raw(response.text)
+        return AllItemsResponse.model_validate_json(response.text)
 
     @retry_on_error(retries=20, delay=5)
     async def ship_order(self, purchase_order_id: str, order_shipment: OrderShipment) -> WalmartOrder:
@@ -204,7 +217,7 @@ class WalmartClient:
         if response.status_code >= 400:
             error_body = response.text
             raise WalmartClientException("Error while shipping order", response.status_code, error_body)
-        return WalmartOrder.parse_raw(response.text)
+        return WalmartOrder.model_validate_json(response.text)
 
     @retry_on_error(retries=20, delay=5)
     async def get_all_released_orders(self) -> List[WalmartOrder]:
