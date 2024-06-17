@@ -14,26 +14,34 @@ from walmart_lib.order import WalmartOrder
 
 class BulkPriceUpdate(BaseModel):
     # Define the fields according to the JSON structure
-    pass
+    prices: List[dict]  
 
 
 class BulkPriceUpdateResponse(BaseModel):
     # Define the fields according to the JSON structure
-    pass
+    feedId: str
+    status: str
 
 
 class BulkInventoryUpdate(BaseModel):
     # Define the fields according to the JSON structure
-    pass
+    inventories: List[dict]  
 
 
 class BulkInventoryUpdateResponse(BaseModel):
     # Define the fields according to the JSON structure
-    pass
+    feedId: str
+    status: str
+
+
+class OrderShipment(BaseModel):
+    # Define the fields according to the JSON structure
+    orderLines: List[dict] 
 
 class ItemPrice(BaseModel):
     currency: str
     amount: str
+
 
 class Item(BaseModel):
     mart: str
@@ -52,30 +60,25 @@ class Item(BaseModel):
     variantGroupInfo: Any
     lifecycleStatus: str
 
-class OrderShipment(BaseModel):
-    # Define the fields according to the JSON structure
-    pass
-
 
 class AllItemsResponse(BaseModel):
     itemResponse: List[Item]
     nextCursor: Optional[str]
 
+
 class AllReleasedOrdersResponse(BaseModel):
-    
     class ResponseList(BaseModel):
-        
         class Meta(BaseModel):
             totalCount: int
             limit: int
             nextCursor: Optional[str]
-    
+
         class Elements(BaseModel):
             order: List[WalmartOrder]
-        
+
         meta: Meta
         elements: Elements
-    
+
     list: ResponseList
 
 
@@ -211,8 +214,9 @@ class WalmartClient:
     async def ship_order(self, purchase_order_id: str, order_shipment: OrderShipment) -> WalmartOrder:
         endpoint = f"/v3/order/{purchase_order_id}/shipping"
         async with httpx.AsyncClient() as client:
-            request = client.build_request("GET", f"{self.base_url}{endpoint}", headers={"Accept": "application/json"})
+            request = client.build_request("POST", f"{self.base_url}{endpoint}", headers={"Accept": "application/json"})
             request = await self.auth_injector.inject_auth_headers(request)
+            request.content = order_shipment.json().encode('utf-8')
             response = await client.send(request)
         if response.status_code >= 400:
             error_body = response.text
@@ -229,7 +233,7 @@ class WalmartClient:
         if response.status_code >= 400:
             error_body = response.text
             raise WalmartClientException("Error while fetching orders", response.status_code, error_body)
-        return AllReleasedOrdersResponse.model_validate_json(response.text).orders
+        return AllReleasedOrdersResponse.model_validate_json(response.text).list.elements.order
 
     @retry_on_error(retries=20, delay=5)
     async def get_order(self, purchase_order_id: str) -> SingleOrderResponse:
@@ -253,4 +257,54 @@ class WalmartClient:
         if response.status_code >= 400:
             error_body = response.text
             raise WalmartClientException("Error while acknowledging order", response.status_code, error_body)
+        return response.text
+
+    async def process_return_refund(self, purchase_order_id: str, return_data: dict) -> str:
+        """
+        Process returns and refunds for Walmart orders.
+
+        Args:
+            purchase_order_id (str): The purchase order ID for which return/refund is to be processed.
+            return_data (dict): Data containing information about the return/refund request.
+
+        Returns:
+            str: Confirmation message or status of the return/refund processing.
+        """
+        endpoint = f"/v3/orders/{purchase_order_id}/return-refund"
+        async with httpx.AsyncClient() as client:
+            request = client.build_request("POST", f"{self.base_url}{endpoint}", json=return_data)
+            request = await self.auth_injector.inject_auth_headers(request)
+            response = await client.send(request)
+        if response.status_code >= 400:
+            error_body = response.text
+            raise WalmartClientException("Error while processing return/refund", response.status_code, error_body)
+        return response.text
+
+    async def manage_product_listing(self, product_data: dict, action: str) -> str:
+        """
+        Manage product listings on Walmart Marketplace.
+
+        Args:
+            product_data (dict): Data containing information about the product listing.
+            action (str): Action to perform - 'add', 'update', or 'remove'.
+
+        Returns:
+            str: Confirmation message or status of the product listing management.
+        """
+        if action not in ['add', 'update', 'remove']:
+            raise ValueError("Invalid action. Allowed actions are 'add', 'update', or 'remove'.")
+
+        endpoint = "/v3/items"
+        if action == 'update':
+            endpoint += f"/{product_data['sku']}"
+
+        async with httpx.AsyncClient() as client:
+            method = "POST" if action != 'update' else "PUT"
+            request = client.build_request(method, f"{self.base_url}{endpoint}", json=product_data)
+            request = await self.auth_injector.inject_auth_headers(request)
+            response = await client.send(request)
+
+        if response.status_code >= 400:
+            error_body = response.text
+            raise WalmartClientException("Error while managing product listing", response.status_code, error_body)
         return response.text
